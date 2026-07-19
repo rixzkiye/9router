@@ -9,7 +9,6 @@ import { formatSSE } from "./stream.js";
  * Only works for Claude CLI requests
  */
 export function handleBypassRequest(body, model, userAgent = "", ccFilterNaming = false) {
-  if (!userAgent.includes("claude-cli")) return null;
   if (!body.messages?.length) return null;
 
   const messages = body.messages;
@@ -20,6 +19,28 @@ export function handleBypassRequest(body, model, userAgent = "", ccFilterNaming 
     }
     return "";
   };
+
+  // Grok Build generates session titles through the selected custom base URL but
+  // hardcodes model="grok-build". Handle that bookkeeping call locally so it
+  // cannot be misrouted to 9Router's Grok subscription provider.
+  const selectedTool = body.tool_choice?.function?.name || body.tool_choice?.name;
+  const titleTool = body.tools?.find(tool => (tool.function?.name || tool.name) === "session_title");
+  if (model === "grok-build" && userAgent.includes("grok-shell") && titleTool && selectedTool === "session_title") {
+    const userText = messages
+      .filter(message => message.role === "user")
+      .map(message => getText(message.content))
+      .join(" ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const title = userText.split(" ").filter(Boolean).slice(0, 8).join(" ") || "New coding session";
+    const args = { session_title: title };
+    return titleTool.function
+      ? createOpenAIToolResponse(model, "session_title", args, body.stream !== false)
+      : createClaudeToolResponse(model, "session_title", args, body.stream !== false);
+  }
+
+  if (!userAgent.includes("claude-cli")) return null;
 
   let shouldBypass = false;
   let namingBypass = false;
@@ -92,6 +113,122 @@ export function handleBypassRequest(body, model, userAgent = "", ccFilterNaming 
 }
 
 const DEFAULT_BYPASS_TEXT = "CLI Command Execution: Clear Terminal";
+
+function createClaudeToolResponse(model, name, args, stream) {
+  const id = `msg_${Date.now()}`;
+  const toolUse = { type: "tool_use", id: `call_${Date.now()}`, name, input: args };
+  const usage = { input_tokens: 1, output_tokens: 1 };
+
+  if (!stream) {
+    return {
+      success: true,
+      response: new Response(JSON.stringify({
+        id,
+        type: "message",
+        role: "assistant",
+        model,
+        content: [toolUse],
+        stop_reason: "tool_use",
+        stop_sequence: null,
+        usage,
+      }), {
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      }),
+    };
+  }
+
+  const events = [
+    ["message_start", {
+      type: "message_start",
+      message: {
+        id, type: "message", role: "assistant", model, content: [],
+        stop_reason: null, stop_sequence: null, usage: { input_tokens: 1, output_tokens: 0 },
+      },
+    }],
+    ["content_block_start", {
+      type: "content_block_start", index: 0,
+      content_block: { ...toolUse, input: {} },
+    }],
+    ["content_block_delta", {
+      type: "content_block_delta", index: 0,
+      delta: { type: "input_json_delta", partial_json: JSON.stringify(args) },
+    }],
+    ["content_block_stop", { type: "content_block_stop", index: 0 }],
+    ["message_delta", {
+      type: "message_delta", delta: { stop_reason: "tool_use", stop_sequence: null },
+      usage: { output_tokens: usage.output_tokens },
+    }],
+    ["message_stop", { type: "message_stop" }],
+  ];
+  const sse = events
+    .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    .join("");
+  return {
+    success: true,
+    response: new Response(sse, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+      },
+    }),
+  };
+}
+
+function createOpenAIToolResponse(model, name, args, stream) {
+  const id = `chatcmpl-${Date.now()}`;
+  const created = Math.floor(Date.now() / 1000);
+  const toolCall = {
+    index: 0,
+    id: `call_${Date.now()}`,
+    type: "function",
+    function: { name, arguments: JSON.stringify(args) },
+  };
+  const usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
+
+  if (!stream) {
+    return {
+      success: true,
+      response: new Response(JSON.stringify({
+        id,
+        object: "chat.completion",
+        created,
+        model,
+        choices: [{
+          index: 0,
+          message: { role: "assistant", content: null, tool_calls: [toolCall] },
+          finish_reason: "tool_calls",
+        }],
+        usage,
+      }), {
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      }),
+    };
+  }
+
+  const chunks = [
+    {
+      id, object: "chat.completion.chunk", created, model,
+      choices: [{ index: 0, delta: { role: "assistant", tool_calls: [toolCall] }, finish_reason: null }],
+    },
+    {
+      id, object: "chat.completion.chunk", created, model,
+      choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }], usage,
+    },
+  ];
+  return {
+    success: true,
+    response: new Response(`${chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "Access-Control-Allow-Origin": "*",
+      },
+    }),
+  };
+}
 
 /**
  * Create OpenAI standard format response

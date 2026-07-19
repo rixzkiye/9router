@@ -143,6 +143,21 @@ describe("grokBuildConfig", () => {
     expect(reset).toContain("[mcp_servers.example]");
   });
 
+  it("restores an existing web-search-agent mapping on reset", () => {
+    const config = `[models]\ndefault = "grok-build"\n\n[subagents.models]\nweb-search-agent = "grok-4.20-multi-agent"\n\n[mcp_servers.x]\nenabled = true\n`;
+    const applied = applyGrokBuildConfig(config, APPLY_INPUT);
+    const reset = resetGrokBuildConfig(applied);
+
+    expect(parseGrokBuildConfig(applied).subagentMappings["web-search-agent"]).toBe(
+      "9router-web-search-agent",
+    );
+    expect(parseGrokBuildConfig(reset).subagentMappings["web-search-agent"]).toBe(
+      "grok-4.20-multi-agent",
+    );
+    expect(reset).not.toContain("[model.9router-web-search-agent]");
+    expect(reset).toContain("[mcp_servers.x]");
+  });
+
   it("removes mappings that were originally unset", () => {
     const config = `[models]\ndefault = "grok-build"\n\n[mcp_servers.x]\nenabled = true\n`;
     const applied = applyGrokBuildConfig(config, {

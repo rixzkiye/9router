@@ -16,6 +16,7 @@
 - **Alicode-intl**: use DashScope compatible-mode endpoint so standard keys work
 - **Grok CLI**: align Grok Build with current subscription protocol (#2590)
 - **Grok CLI**: surface `expiresAt` so proactive token refresh fires (#2546)
+- **Grok Build + MiniMax**: use native Messages protocol for direct MiniMax models, keep multi-endpoint request bodies aligned with selected transports, and handle session-title calls locally
 - **Kiro**: improve direct session cache reuse
 - **Models**: populate capabilities for live-catalog LLM models
 - **Models**: list compatible provider models in `/v1/models`

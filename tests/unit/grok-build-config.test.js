@@ -4,6 +4,7 @@ import {
   getGrokSubagentSlot,
   parseGrokBuildConfig,
   resetGrokBuildConfig,
+  resolveGrokBuildApiBackend,
 } from "../../src/lib/grokBuildConfig.js";
 
 const BASE_CONFIG = `[cli]
@@ -165,6 +166,23 @@ describe("grokBuildConfig", () => {
     expect(parsed.model.model).toBe("gemini/gemini-3.1-pro");
     expect(parsed.subagentMappings.explore).toBe("9router-explore");
     expect(parsed.subagentModels.explore.model).toBe("gemini/gemini-3-flash");
+  });
+
+  it("uses Anthropic Messages for direct MiniMax routes", () => {
+    expect(resolveGrokBuildApiBackend("minimax/MiniMax-M3")).toBe("messages");
+    expect(resolveGrokBuildApiBackend("minimax-cn/MiniMax-M2.7")).toBe("messages");
+    expect(resolveGrokBuildApiBackend("premium-coding")).toBe("chat_completions");
+    expect(resolveGrokBuildApiBackend("openai/gpt-5.4")).toBe("chat_completions");
+
+    const result = applyGrokBuildConfig(BASE_CONFIG, {
+      ...APPLY_INPUT,
+      model: "minimax/MiniMax-M3",
+      subagentModels: {
+        explore: { model: "minimax-cn/MiniMax-M2.7", contextWindow: 204800 },
+      },
+    });
+    expect(parseGrokBuildConfig(result).model.api_backend).toBe("messages");
+    expect(parseGrokBuildConfig(result).subagentModels.explore.api_backend).toBe("messages");
   });
 
   it("returns stable slot names only for supported subagent types", () => {

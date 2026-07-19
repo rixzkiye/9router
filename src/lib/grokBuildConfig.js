@@ -17,6 +17,13 @@ const sectionRegExp = (section) =>
 
 const modelSlot = (type) => `${GROK_MAIN_MODEL_SLOT}-${type}`;
 
+export function resolveGrokBuildApiBackend(model) {
+  const provider = typeof model === "string" ? model.split("/", 1)[0].toLowerCase() : "";
+  return provider === "minimax" || provider === "minimax-cn"
+    ? "messages"
+    : "chat_completions";
+}
+
 const previousDefaultRegExp = /^# 9router-prev-default = "([^"]*)"[ \t]*\r?\n?/m;
 const previousSubagentRegExp = (type) =>
   new RegExp(
@@ -98,7 +105,7 @@ function buildModelSection({ slot, model, baseUrl, apiKey, contextWindow, name }
     `base_url = ${tomlString(baseUrl)}`,
     `name = ${tomlString(name)}`,
     `description = ${tomlString("Routed via 9Router gateway")}`,
-    `api_backend = "chat_completions"`,
+    `api_backend = ${tomlString(resolveGrokBuildApiBackend(model))}`,
   ];
   if (apiKey) lines.push(`api_key = ${tomlString(apiKey)}`);
   if (Number.isFinite(contextWindow) && contextWindow > 0) {

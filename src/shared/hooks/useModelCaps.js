@@ -55,11 +55,6 @@ export function useModelCaps() {
   const [byId, setById] = useState(() => cache?.byId || {});
 
   useEffect(() => {
-    if (cache) {
-      setByFull(cache.byFull);
-      setById(cache.byId);
-      return;
-    }
     let alive = true;
     loadModelCaps().then((maps) => {
       if (alive) {

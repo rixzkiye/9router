@@ -2,7 +2,7 @@
 
 ## Features
 - **xAI**: Grok Imagine video generation (`/v1/videos`) + CLI
-- **CLI tools**: Grok Build setup — choose separate main/general-purpose/explore/plan models and preserve each model's context window
+- **CLI tools**: Grok Build setup — choose separate main, general-purpose, explore, plan, and web-search-agent models while preserving each model's context window
 - **GitHub Copilot**: route Claude models through Copilot's native `/v1/messages`
 - **Kiro**: add GPT-5.6 model family (#2596)
 - **RTK**: `X-9Router-Token-Saver` header to bypass token savers per request

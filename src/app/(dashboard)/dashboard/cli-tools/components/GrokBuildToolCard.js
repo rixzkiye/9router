@@ -14,6 +14,7 @@ const SUBAGENT_TYPES = [
   { id: "general-purpose", label: "General-purpose", help: "Implementation, testing, and full-capability delegated tasks" },
   { id: "explore", label: "Explore", help: "Read-only codebase research and investigation" },
   { id: "plan", label: "Plan", help: "Architecture and implementation planning" },
+  { id: "web-search-agent", label: "Web Search", help: "Internet research, current docs, and external debugging evidence" },
 ];
 
 function ModelField({ label, value, placeholder, onChange, onSelect, disabled, help }) {

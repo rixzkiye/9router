@@ -1,4 +1,5 @@
-import { execFileSync, execSync } from "child_process";
+import { execFileSync } from "child_process";
+import { realpathSync } from "fs";
 import path from "path";
 
 // Extras that improve headroom compression quality. `proxy` is the base;
@@ -15,6 +16,7 @@ export const EXTRA_MARKERS = {
 };
 
 const HEADROOM_PIP_TIMEOUT_MS = 8000;
+const normalizePackageName = (name) => String(name || "").toLowerCase().replace(/[-_.]+/g, "-");
 
 const IS_WIN = process.platform === "win32";
 const WHICH_CMD = IS_WIN ? "where" : "which";
@@ -22,6 +24,8 @@ const WHICH_CMD = IS_WIN ? "where" : "which";
 // Extra bin dirs often missing from a packaged/launchd PATH (Python installs headroom here).
 const EXTRA_BINS = IS_WIN
   ? [
+      process.env.UV_TOOL_BIN_DIR || "",
+      `${process.env.USERPROFILE || ""}\\.local\\bin`,
       `${process.env.LOCALAPPDATA || ""}\\Programs\\Python\\Python313\\Scripts`,
       `${process.env.LOCALAPPDATA || ""}\\Programs\\Python\\Python312\\Scripts`,
       `${process.env.LOCALAPPDATA || ""}\\Programs\\Python\\Python311\\Scripts`,
@@ -29,6 +33,7 @@ const EXTRA_BINS = IS_WIN
       `${process.env.APPDATA || ""}\\Python\\Python313\\Scripts`,
     ]
   : [
+      process.env.UV_TOOL_BIN_DIR || "",
       "/usr/local/bin",
       "/opt/homebrew/bin",
       "/Library/Frameworks/Python.framework/Versions/3.13/bin",
@@ -51,9 +56,10 @@ export const DEFAULT_HEADROOM_URL = process.env.HEADROOM_URL || "http://localhos
 // Detect whether the headroom CLI is installed and where its binary lives.
 export function findHeadroomBinary() {
   try {
-    const out = execSync(`${WHICH_CMD} headroom`, {
+    const out = execFileSync(WHICH_CMD, ["headroom"], {
       stdio: ["ignore", "pipe", "ignore"],
       windowsHide: true,
+      timeout: HEADROOM_PIP_TIMEOUT_MS,
       env: { ...process.env, PATH: EXTENDED_PATH },
     }).toString().trim();
     // Windows `where` may return multiple lines — take the first.
@@ -76,25 +82,27 @@ function pythonCandidates() {
   const list = [];
   const bin = findHeadroomBinary();
   if (bin) {
-    const dir = path.dirname(bin);
-    const names = IS_WIN ? ["python.exe", "python3.exe"] : ["python3", "python3.13", "python"];
-    for (const n of names) list.push(path.join(dir, n));
+    const dirs = new Set([path.dirname(bin)]);
+    try { dirs.add(path.dirname(realpathSync(bin))); } catch { /* unresolved link */ }
+    const names = IS_WIN ? ["python.exe", "python3.exe", "python", "python3"] : ["python3", "python3.13", "python"];
+    for (const dir of dirs) for (const name of names) list.push(path.join(dir, name));
   }
   for (const dir of EXTRA_BINS) {
     if (!dir) continue;
     for (const n of PYTHON_CANDIDATES) list.push(path.join(dir, IS_WIN ? `${n}.exe` : n));
   }
   list.push(...PYTHON_CANDIDATES);
-  return list;
+  return [...new Set(list)];
 }
 
 export function findPython310() {
   let fallback = null;
   for (const candidate of pythonCandidates()) {
     try {
-      const ver = execSync(`${candidate} --version`, {
+      const ver = execFileSync(candidate, ["--version"], {
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
+        timeout: HEADROOM_PIP_TIMEOUT_MS,
         env: { ...process.env, PATH: EXTENDED_PATH },
       }).toString().trim();
       const match = ver.match(/(\d+)\.(\d+)/);
@@ -103,7 +111,7 @@ export function findPython310() {
       if (!(major > MIN_VERSION[0] || (major === MIN_VERSION[0] && minor >= MIN_VERSION[1]))) continue;
       if (!fallback) fallback = candidate;
       try {
-        execFileSync(candidate, ["-m", "pip", "show", "headroom-ai"], {
+        execFileSync(candidate, ["-c", "from importlib.metadata import version; print(version('headroom-ai'))"], {
           stdio: ["ignore", "pipe", "ignore"],
           windowsHide: true,
           timeout: HEADROOM_PIP_TIMEOUT_MS,
@@ -162,30 +170,32 @@ export async function getHeadroomStatus(url) {
 }
 
 // Parse installed headroom-ai version + which compression extras are
-// actually installed (detected via marker package presence). One `pip list`
-// call is enough to answer both questions.
+// actually installed. importlib.metadata is stdlib and works in uv-tool
+// environments that deliberately omit pip.
 //
 // Returns: { installed: bool, version: string|null, extras: { code, ml } }
 export function getInstalledHeadroomExtras(python) {
   const py = python || findPython310();
   if (!py) return { installed: false, version: null, extras: { code: false, ml: false } };
   try {
-    const out = execFileSync(py, ["-m", "pip", "list", "--format=json", "--disable-pip-version-check"], {
+    const script = "import json; from importlib.metadata import distributions; print(json.dumps({d.metadata['Name']: d.version for d in distributions() if d.metadata['Name']}))";
+    const out = execFileSync(py, ["-c", script], {
       stdio: ["ignore", "pipe", "ignore"],
       windowsHide: true,
       timeout: HEADROOM_PIP_TIMEOUT_MS,
       env: { ...process.env, PATH: EXTENDED_PATH },
     }).toString();
-    const packages = JSON.parse(out);
-    const names = new Set(packages.map((p) => String(p.name || "").toLowerCase()));
+    const packages = Object.fromEntries(
+      Object.entries(JSON.parse(out)).map(([name, version]) => [normalizePackageName(name), version]),
+    );
+    const names = new Set(Object.keys(packages));
     const installed = names.has("headroom-ai");
     if (!installed) return { installed: false, version: null, extras: { code: false, ml: false } };
-    const version = packages.find((p) => p.name?.toLowerCase() === "headroom-ai")?.version || null;
     const extras = {};
     for (const extra of HEADROOM_COMPRESSION_EXTRAS) {
-      extras[extra] = EXTRA_MARKERS[extra].some((m) => names.has(m));
+      extras[extra] = EXTRA_MARKERS[extra].some((m) => names.has(normalizePackageName(m)));
     }
-    return { installed: true, version, extras };
+    return { installed: true, version: packages["headroom-ai"] || null, extras };
   } catch {
     return { installed: false, version: null, extras: { code: false, ml: false } };
   }

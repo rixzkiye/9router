@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { spawn } from "child_process";
+import { execFileSync, spawn } from "child_process";
 import { DATA_DIR } from "@/lib/dataDir.js";
 import { findHeadroomBinary, findPython310, HEADROOM_COMPRESSION_EXTRAS, EXTRA_MARKERS, getInstalledHeadroomExtras } from "./detect.js";
 
@@ -10,9 +10,22 @@ const LOG_FILE = path.join(HEADROOM_DIR, "proxy.log");
 const INSTALL_LOG_FILE = path.join(HEADROOM_DIR, "install.log");
 const DEFAULT_PORT = 8787;
 const STARTUP_TIMEOUT_MS = 8000;
+const PIP_PROBE_TIMEOUT_MS = 8000;
 
 function ensureDir() {
   if (!fs.existsSync(HEADROOM_DIR)) fs.mkdirSync(HEADROOM_DIR, { recursive: true });
+}
+
+function pipCommand(python, action, args) {
+  try {
+    execFileSync(python, ["-m", "pip", "--version"], {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: PIP_PROBE_TIMEOUT_MS,
+    });
+    return { command: python, args: ["-m", "pip", action, ...args] };
+  } catch {
+    return { command: "uv", args: ["pip", action, "--python", python, ...args] };
+  }
 }
 
 function readPid() {
@@ -181,12 +194,12 @@ export async function installHeadroomExtras(extras = []) {
   // ['proxy', ...requested]. No shell interpolation.
   const extrasList = ["proxy", ...requested].join(",");
   const spec = `headroom-ai[${extrasList}]`;
-  const args = ["-m", "pip", "install", "--upgrade", spec];
+  const installer = pipCommand(py, "install", ["--upgrade", spec]);
 
   ensureDir();
   // Truncate ("w") so the log reflects only the current install for live progress.
   const outFd = fs.openSync(INSTALL_LOG_FILE, "w");
-  const child = spawn(py, args, {
+  const child = spawn(installer.command, installer.args, {
     stdio: ["ignore", outFd, outFd],
     windowsHide: true,
     env: { ...process.env },
@@ -224,11 +237,11 @@ export async function uninstallHeadroomExtras(extras = []) {
     err.code = "INVALID_EXTRAS";
     throw err;
   }
-  const args = ["-m", "pip", "uninstall", "-y", ...pkgs];
+  const installer = pipCommand(py, "uninstall", ["-y", ...pkgs]);
 
   ensureDir();
   const outFd = fs.openSync(INSTALL_LOG_FILE, "w");
-  const child = spawn(py, args, {
+  const child = spawn(installer.command, installer.args, {
     stdio: ["ignore", outFd, outFd],
     windowsHide: true,
     env: { ...process.env },

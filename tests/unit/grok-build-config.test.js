@@ -38,6 +38,7 @@ const APPLY_INPUT = {
   subagentModels: {
     "general-purpose": { model: "cc/claude-sonnet-5", contextWindow: 1000000 },
     explore: { model: "gemini/gemini-3-flash", contextWindow: 1048576 },
+    "web-search-agent": { model: "grok-cli/grok-4.5", contextWindow: 256000 },
   },
 };
 
@@ -56,6 +57,7 @@ describe("grokBuildConfig", () => {
       "general-purpose": "9router-general-purpose",
       explore: "9router-explore",
       plan: "grok-4.5",
+      "web-search-agent": "9router-web-search-agent",
     });
     expect(parsed.subagentModels["general-purpose"]).toMatchObject({
       model: "cc/claude-sonnet-5",
@@ -64,6 +66,10 @@ describe("grokBuildConfig", () => {
     expect(parsed.subagentModels.explore).toMatchObject({
       model: "gemini/gemini-3-flash",
       context_window: 1048576,
+    });
+    expect(parsed.subagentModels["web-search-agent"]).toMatchObject({
+      model: "grok-cli/grok-4.5",
+      context_window: 256000,
     });
     expect(parsed.subagentModels.plan).toBeNull();
   });
@@ -131,10 +137,26 @@ describe("grokBuildConfig", () => {
       "general-purpose": "grok-4.5",
       explore: "grok-build",
       plan: "grok-4.5",
+      "web-search-agent": null,
     });
     expect(reset).not.toContain("[model.9router-");
     expect(reset).not.toContain("9router-prev-");
     expect(reset).toContain("[mcp_servers.example]");
+  });
+
+  it("restores an existing web-search-agent mapping on reset", () => {
+    const config = `[models]\ndefault = "grok-build"\n\n[subagents.models]\nweb-search-agent = "grok-4.20-multi-agent"\n\n[mcp_servers.x]\nenabled = true\n`;
+    const applied = applyGrokBuildConfig(config, APPLY_INPUT);
+    const reset = resetGrokBuildConfig(applied);
+
+    expect(parseGrokBuildConfig(applied).subagentMappings["web-search-agent"]).toBe(
+      "9router-web-search-agent",
+    );
+    expect(parseGrokBuildConfig(reset).subagentMappings["web-search-agent"]).toBe(
+      "grok-4.20-multi-agent",
+    );
+    expect(reset).not.toContain("[model.9router-web-search-agent]");
+    expect(reset).toContain("[mcp_servers.x]");
   });
 
   it("removes mappings that were originally unset", () => {
@@ -189,6 +211,7 @@ describe("grokBuildConfig", () => {
     expect(getGrokSubagentSlot("general-purpose")).toBe("9router-general-purpose");
     expect(getGrokSubagentSlot("explore")).toBe("9router-explore");
     expect(getGrokSubagentSlot("plan")).toBe("9router-plan");
+    expect(getGrokSubagentSlot("web-search-agent")).toBe("9router-web-search-agent");
     expect(getGrokSubagentSlot("unknown")).toBeNull();
   });
 });

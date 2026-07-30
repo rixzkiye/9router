@@ -1,6 +1,11 @@
 export const GROK_MAIN_MODEL_SLOT = "9router";
 export const GROK_BUILTIN_DEFAULT = "grok-build";
-export const GROK_SUBAGENT_TYPES = ["general-purpose", "explore", "plan"];
+export const GROK_SUBAGENT_TYPES = [
+  "general-purpose",
+  "explore",
+  "plan",
+  "web-search-agent",
+];
 
 const UNSET_SENTINEL = "__9router_unset__";
 const MODELS_SECTION = "models";

@@ -74,6 +74,8 @@ export function createSSEStream(options = {}) {
   let openAIResponsesTerminalSeen = false;
   let openAIResponsesDoneSent = false;
   let streamDoneSent = false;  // track duplicate [DONE] across transform + flush
+  let openAIChunkId = null;
+  let openAIChunkModel = typeof model === "string" && model ? model : "unknown";
 
   return new TransformStream({
     transform(chunk, controller) {
@@ -125,8 +127,17 @@ export function createSSEStream(options = {}) {
 
               const idFixed = fixInvalidId(parsed);
 
-              // Ensure OpenAI-required fields are present on streaming chunks (Letta compat)
+              // Ensure every OpenAI chunk can be deserialized by strict clients.
+              // Metadata-only usage/cost events often omit id/model.
               if (parsed.choices !== undefined) {
+                if (parsed.id) openAIChunkId = parsed.id;
+                else {
+                  openAIChunkId ||= `chatcmpl-${Date.now().toString(36)}`;
+                  parsed.id = openAIChunkId;
+                  fieldsInjected = true;
+                }
+                if (parsed.model) openAIChunkModel = parsed.model;
+                else { parsed.model = openAIChunkModel; fieldsInjected = true; }
                 if (!parsed.object) { parsed.object = "chat.completion.chunk"; fieldsInjected = true; }
                 if (!parsed.created) { parsed.created = Math.floor(Date.now() / 1000); fieldsInjected = true; }
               }

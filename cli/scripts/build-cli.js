@@ -3,6 +3,7 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+const { copyRuntimePackages } = require("../../scripts/copy-runtime-packages.cjs");
 
 const cliDir = path.resolve(__dirname, "..");
 const appDir = path.resolve(cliDir, "..");
@@ -197,9 +198,18 @@ function ensureModuleInBundle(pkg) {
 }
 ensureModuleInBundle("sql.js");
 // custom-server.js loads the native gateway outside Next's traced module graph.
-for (const pkg of ["ws", "https-proxy-agent", "socks-proxy-agent", "agent-base", "debug", "socks", "smart-buffer"]) {
-  ensureModuleInBundle(pkg);
-}
+copyRuntimePackages(
+  ["ws", "https-proxy-agent", "socks-proxy-agent"],
+  path.join(cliAppDir, "node_modules"),
+  {
+    searchPaths: [appDir, rootDir],
+    storeDirs: [
+      path.join(appDir, "node_modules", ".pnpm"),
+      path.join(rootDir, "node_modules", ".pnpm"),
+    ],
+    onCopy: (pkg, version) => console.log(`✅ Bundled ${pkg}@${version}`),
+  }
+);
 const betterDir = path.join(cliAppDir, "node_modules", "better-sqlite3");
 if (fs.existsSync(betterDir)) {
   fs.rmSync(betterDir, { recursive: true, force: true });

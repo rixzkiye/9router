@@ -165,6 +165,7 @@ console.log("✅ Copied standalone build\n");
 const customServerSrc = path.join(appDir, "custom-server.js");
 if (fs.existsSync(customServerSrc)) {
   fs.copyFileSync(customServerSrc, path.join(cliAppDir, "custom-server.js"));
+  copyRecursive(path.join(appDir, "server"), path.join(cliAppDir, "server"));
   console.log("✅ Copied custom-server.js\n");
 } else {
   console.warn("⚠️  custom-server.js not found — server will run without real-IP injection\n");
@@ -195,6 +196,10 @@ function ensureModuleInBundle(pkg) {
   console.log(`✅ Bundled ${pkg}`);
 }
 ensureModuleInBundle("sql.js");
+// custom-server.js loads the native gateway outside Next's traced module graph.
+for (const pkg of ["ws", "https-proxy-agent", "socks-proxy-agent", "agent-base", "debug", "socks", "smart-buffer"]) {
+  ensureModuleInBundle(pkg);
+}
 const betterDir = path.join(cliAppDir, "node_modules", "better-sqlite3");
 if (fs.existsSync(betterDir)) {
   fs.rmSync(betterDir, { recursive: true, force: true });

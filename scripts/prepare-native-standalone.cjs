@@ -2,6 +2,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { copyRuntimePackages } = require("./copy-runtime-packages.cjs");
 
 const appDir = path.resolve(__dirname, "..");
 const distDir = path.join(appDir, process.env.NEXT_DIST_DIR || ".next");
@@ -24,20 +25,13 @@ fs.cpSync(path.join(appDir, "server"), path.join(standaloneDir, "server"), {
   dereference: true,
 });
 
-const packages = [
-  "ws",
-  "https-proxy-agent",
-  "socks-proxy-agent",
-  "agent-base",
-  "debug",
-  "socks",
-  "smart-buffer",
-];
-for (const packageName of packages) {
-  const source = fs.realpathSync(path.join(appDir, "node_modules", packageName));
-  const destination = path.join(standaloneDir, "node_modules", packageName);
-  fs.rmSync(destination, { recursive: true, force: true });
-  fs.cpSync(source, destination, { recursive: true, dereference: true });
-}
+copyRuntimePackages(
+  ["ws", "https-proxy-agent", "socks-proxy-agent"],
+  path.join(standaloneDir, "node_modules"),
+  {
+    searchPaths: [appDir],
+    storeDirs: [path.join(appDir, "node_modules", ".pnpm")],
+  }
+);
 
 console.log(`Prepared Codex Native standalone gateway in ${standaloneDir}`);

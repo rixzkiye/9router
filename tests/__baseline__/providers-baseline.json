@@ -115,10 +115,7 @@
       "oauth": {
         "header": "Authorization",
         "scheme": "bearer"
-      },
-      "hooks": [
-        "claudeOverlay"
-      ]
+      }
     },
     "usage": {
       "oauthUrl": "https://api.anthropic.com/api/oauth/usage",
@@ -548,7 +545,6 @@
     "headers": {
       "Content-Type": "application/json",
       "Accept": "application/vnd.amazon.eventstream",
-      "X-Amz-Target": "AmazonCodeWhispererStreamingService.GenerateAssistantResponse",
       "User-Agent": "AWS-SDK-JS/3.0.0 kiro-ide/1.0.0",
       "X-Amz-User-Agent": "aws-sdk-js/3.0.0 kiro-ide/1.0.0"
     },
@@ -755,12 +751,6 @@
       "url": "https://openapi.qoder.sh/api/v2/quota/usage"
     },
     "format": "openai"
-  },
-  "qwen": {
-    "baseUrl": "https://portal.qwen.ai/v1/chat/completions",
-    "format": "openai",
-    "clientId": "f0304373b74a44d2b584a3fb70ca9e56",
-    "tokenUrl": "https://chat.qwen.ai/api/v1/oauth2/token"
   },
   "siliconflow": {
     "baseUrl": "https://api.siliconflow.com/v1/chat/completions",

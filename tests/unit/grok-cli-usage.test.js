@@ -354,6 +354,11 @@ function binaryResponse(buffer, status = 200) {
   });
 }
 
+function accessTokenWithTier(tier) {
+  const payload = Buffer.from(JSON.stringify({ tier })).toString("base64url");
+  return `header.${payload}.signature`;
+}
+
 const EMPTY_GRPC_WEB_FRAME = Buffer.from([0, 0, 0, 0, 0]);
 const GRPC_CREDITS_URL =
   "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig";
@@ -469,6 +474,7 @@ describe("getUsageForProvider(grok-cli)", () => {
   });
 
   it("falls back to GetGrokCreditsConfig gRPC when paid sub has no REST numeric quota", async () => {
+    const accessToken = accessTokenWithTier(5);
     const resetSeconds = 1784825940;
     const resetNanos = 867850000;
     const resetAt = new Date(
@@ -485,7 +491,7 @@ describe("getUsageForProvider(grok-cli)", () => {
 
     const usage = await getUsageForProvider({
       provider: "grok-cli",
-      accessToken: "test-token",
+      accessToken,
     });
 
     expect(usage.plan).toBe("X Premium Plus");

@@ -15,14 +15,12 @@ describe("Codex Native model metadata cohorts", () => {
       slug: "gpt-native",
       display_name: "Native",
       priority: 2,
-      base_instructions: "cohort-rich",
       context_window: 300_000,
       supported_reasoning_levels: [{ effort: "high" }],
       experimental_supported_tools: ["shell", "search"],
     };
     const different = {
       ...rich,
-      base_instructions: "cohort-other",
       context_window: 200_000,
       experimental_supported_tools: [],
     };
@@ -60,6 +58,35 @@ describe("Codex Native model metadata cohorts", () => {
     const { hashCodexModelInfo } = await import("@/lib/codexNative/catalog.js");
     expect(hashCodexModelInfo({ slug: "a", nested: { z: 1, a: 2 } }))
       .toBe(hashCodexModelInfo({ nested: { a: 2, z: 1 }, slug: "a" }));
+  });
+
+  it("ignores per-account personalized fields when grouping cohorts", async () => {
+    const { hashCodexModelInfo, selectCodexModelCohorts } = await import("@/lib/codexNative/catalog.js");
+    const one = {
+      slug: "gpt-native",
+      display_name: "Native",
+      base_instructions: "personalized-for-account-a",
+      model_messages: { instructions_template: "a" },
+      available_in_plans: ["free"],
+      minimal_client_version: "0.142.2",
+    };
+    const other = {
+      ...one,
+      base_instructions: "personalized-for-account-b",
+      model_messages: { instructions_template: "b" },
+      available_in_plans: ["business", "enterprise"],
+      minimal_client_version: "0.144.0",
+    };
+    expect(hashCodexModelInfo(one)).toBe(hashCodexModelInfo(other));
+    const result = selectCodexModelCohorts([
+      { ok: true, connectionId: "a", models: [one] },
+      { ok: true, connectionId: "b", models: [other] },
+    ], [
+      { id: "a", priority: 1 },
+      { id: "b", priority: 2 },
+    ]);
+    expect(result.models[0]).toEqual(one);
+    expect(result.eligibleConnectionIds["gpt-native"]).toEqual(["a", "b"]);
   });
 
   it("treats invalidated/expired token responses as auth failures, not stale fallbacks", async () => {

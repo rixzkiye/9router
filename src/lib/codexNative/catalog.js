@@ -86,6 +86,11 @@ const VOLATILE_MODEL_INFO_FIELDS = new Set([
   "model_messages",
   "available_in_plans",
   "minimal_client_version",
+  // ChatGPT personalizes the injected system instructions per account; the
+  // backend applies its own copy anyway, so hashing it fragments otherwise
+  // identical accounts into minority cohorts (observed: gpt-5.6-sol lost
+  // healthy accounts solely because base_instructions differed).
+  "base_instructions",
 ]);
 
 export function hashCodexModelInfo(model) {

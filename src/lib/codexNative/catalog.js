@@ -52,6 +52,13 @@ function validModel(model) {
     && model.slug.length > 0;
 }
 
+export function isCatalogAuthFailure(error) {
+  // fetchConnectionCatalog throws "Codex models <status>: <detail>". A token
+  // that ChatGPT invalidated or expired can never serve a request, so its old
+  // metadata must not keep the account in an eligible cohort.
+  return /^Codex models 4(01|03)\b/.test(String(error?.message || ""));
+}
+
 function proxyOptions(proxy) {
   return {
     connectionProxyEnabled: proxy.connectionProxyEnabled === true,
@@ -238,7 +245,8 @@ async function refreshCatalog(clientVersion) {
       state.accounts.set(key, result);
       return { ok: true, connectionId: connection.id, ...result };
     } catch (error) {
-      if (cached && Date.now() - cached.fetchedAt <= CODEX_NATIVE_CONFIG.catalogStaleMs) {
+      if (!isCatalogAuthFailure(error)
+        && cached && Date.now() - cached.fetchedAt <= CODEX_NATIVE_CONFIG.catalogStaleMs) {
         return { ok: true, stale: true, connectionId: connection.id, ...cached, warning: error.message };
       }
       return { ok: false, connectionId: connection.id, error: error.message };

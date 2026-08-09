@@ -61,4 +61,13 @@ describe("Codex Native model metadata cohorts", () => {
     expect(hashCodexModelInfo({ slug: "a", nested: { z: 1, a: 2 } }))
       .toBe(hashCodexModelInfo({ nested: { a: 2, z: 1 }, slug: "a" }));
   });
+
+  it("treats invalidated/expired token responses as auth failures, not stale fallbacks", async () => {
+    const { isCatalogAuthFailure } = await import("@/lib/codexNative/catalog.js");
+    expect(isCatalogAuthFailure(new Error("Codex models 401: {\"error\":{\"message\":\"Your authentication token has been invalidated\"}}"))).toBe(true);
+    expect(isCatalogAuthFailure(new Error("Codex models 403: forbidden"))).toBe(true);
+    expect(isCatalogAuthFailure(new Error("Codex models 502: upstream blew up"))).toBe(false);
+    expect(isCatalogAuthFailure(new Error("Codex models 429: slow down"))).toBe(false);
+    expect(isCatalogAuthFailure(null)).toBe(false);
+  });
 });

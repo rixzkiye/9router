@@ -126,6 +126,62 @@ describe("Codex Native WebSocket gateway", () => {
     expect(actions.some(({ action }) => action === "validate-model")).toBe(true);
   });
 
+  it("preserves the client query string on the upstream WebSocket URL", async () => {
+    const upstreamHttp = http.createServer();
+    const upstreamWss = new WebSocketServer({ server: upstreamHttp });
+    let upstreamUrlSeen;
+    const actions = [];
+    upstreamWss.on("connection", (socket, request) => {
+      upstreamUrlSeen = request.url;
+      socket.on("message", (data) => socket.send(data.toString()));
+    });
+    const upstreamPort = await listen(upstreamHttp);
+
+    const fakeFetch = async (url, options) => {
+      const action = new URL(url).pathname.split("/").pop();
+      const payload = JSON.parse(options.body);
+      actions.push({ action, payload });
+      if (action === "acquire") {
+        return Response.json({
+          leaseId: "lease-query",
+          connectionId: "account-1",
+          upstreamHeaders: { authorization: "Bearer upstream-token" },
+          proxy: { enabled: false },
+        });
+      }
+      if (action === "validate-model") return Response.json({ valid: true });
+      return Response.json({ success: true });
+    };
+
+    const gatewayHttp = http.createServer();
+    attachCodexNativeGateway(gatewayHttp, {
+      secret: "secret",
+      fetch: fakeFetch,
+      upstreamUrl: `ws://127.0.0.1:${upstreamPort}`,
+    });
+    const port = await listen(gatewayHttp);
+
+    const frame = JSON.stringify({ type: "response.create", model: "gpt-native", input: [] });
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${port}/v1/codex/responses?client_version=0.147.0&conversation_mode=code_mode_only`,
+      { headers: { authorization: "Bearer client-api-key" } }
+    );
+    const echoed = await new Promise((resolve, reject) => {
+      socket.on("open", () => socket.send(frame));
+      socket.on("message", (data) => resolve(data.toString()));
+      socket.on("error", reject);
+    });
+    const closed = new Promise((resolve) => socket.once("close", resolve));
+    socket.close(1000, "done");
+    await closed;
+
+    expect(echoed).toBe(frame);
+    const params = new URL(upstreamUrlSeen, "ws://127.0.0.1").searchParams;
+    expect(params.get("client_version")).toBe("0.147.0");
+    expect(params.get("conversation_mode")).toBe("code_mode_only");
+    expect(actions.find(({ action }) => action === "acquire").payload.clientVersion).toBe("0.147.0");
+  });
+
   it("switches to a model-compatible metadata cohort before sending the first frame", async () => {
     const upstreamHttp = http.createServer();
     const upstreamWss = new WebSocketServer({ server: upstreamHttp });

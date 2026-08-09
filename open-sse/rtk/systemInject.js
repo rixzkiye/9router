@@ -41,11 +41,15 @@ function injectMessagesSystem(body, prompt) {
     : null;
   if (!arr) return;
 
-  const idx = arr.findIndex(m => m && (m.role === "system" || m.role === "developer"));
+  // Only real message items may carry system/developer content. Responses API
+  // items like {type:"additional_tools", role:"developer"} must be skipped —
+  // appending a `content` field to them makes upstream reject
+  // "Unknown parameter: 'input[0].content'".
+  const idx = arr.findIndex(m => m && (m.role === "system" || m.role === "developer") && (!m.type || m.type === "message"));
   if (idx >= 0) {
     appendToOpenAIMessage(arr[idx], prompt);
   } else {
-    arr.unshift({ role: "system", content: prompt });
+    arr.unshift({ type: "message", role: "system", content: prompt });
   }
 }
 
@@ -53,8 +57,12 @@ function appendToOpenAIMessage(msg, prompt) {
   if (typeof msg.content === "string") {
     msg.content = `${msg.content}${SEP}${prompt}`;
   } else if (Array.isArray(msg.content)) {
-    // Responses-style array of parts {type:"input_text"|"text", text}
-    msg.content.push({ type: "input_text", text: prompt });
+    // Responses-style parts use {type:"input_text"}; chat-style parts use
+    // {type:"text"}. Match the existing parts so upstreams like DeepSeek that
+    // reject input_text in chat format keep working.
+    const firstText = msg.content.find((p) => p && (p.type === "input_text" || p.type === "text"));
+    const partType = firstText?.type === "input_text" ? "input_text" : "text";
+    msg.content.push({ type: partType, text: prompt });
   } else {
     msg.content = prompt;
   }

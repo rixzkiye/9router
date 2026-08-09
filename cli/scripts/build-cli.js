@@ -41,7 +41,7 @@ function copyRecursive(src, dest) {
     console.warn(`Warning: Source ${src} does not exist`);
     return;
   }
-  
+
   if (!fs.existsSync(dest)) {
     fs.mkdirSync(dest, { recursive: true });
   }
@@ -89,104 +89,13 @@ function resolveStandaloneBuild(appDir, buildDistDir) {
     ? resolvedStandaloneRoot
     : legacyStandaloneRoot;
 
-fs.mkdirSync(buildHomeDir, { recursive: true });
-fs.mkdirSync(path.join(buildHomeDir, "AppData", "Roaming"), { recursive: true });
-fs.mkdirSync(path.join(buildHomeDir, "AppData", "Local"), { recursive: true });
-
-// Step 0: Sync version from app/cli/package.json to app/package.json
-console.log("0️⃣  Syncing version to app/package.json...");
-const cliPkg = JSON.parse(fs.readFileSync(path.join(cliDir, "package.json"), "utf8"));
-const appPkgPath = path.join(appDir, "package.json");
-const appPkg = JSON.parse(fs.readFileSync(appPkgPath, "utf8"));
-if (appPkg.version !== cliPkg.version) {
-  appPkg.version = cliPkg.version;
-  fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + "\n");
-  console.log(`✅ Version synced: ${cliPkg.version}\n`);
-} else {
-  console.log(`✅ Version already synced: ${cliPkg.version}\n`);
-}
-
-// Step 1: Build app with Next.js (workspace tracing root → traced node_modules in standalone).
-console.log("1️⃣  Building Next.js app...");
-try {
-  execSync("npm run build", {
-    stdio: "inherit",
-    cwd: appDir,
-    env: {
-      ...process.env,
-      HOME: buildHomeDir,
-      USERPROFILE: buildHomeDir,
-      APPDATA: path.join(buildHomeDir, "AppData", "Roaming"),
-      LOCALAPPDATA: path.join(buildHomeDir, "AppData", "Local"),
-      NEXT_DIST_DIR: buildDistDirName,
-      NEXT_TRACING_ROOT_MODE: "workspace",
-    }
-  });
-  console.log("✅ Next.js build completed\n");
-} catch (error) {
-  console.error("❌ Next.js build failed");
-  process.exit(1);
-}
-
-// Step 2: Clean old app/cli/app if exists
-console.log("2️⃣  Cleaning old app/cli/app...");
-if (fs.existsSync(cliAppDir)) {
-  fs.rmSync(cliAppDir, { recursive: true, force: true });
-}
-console.log("✅ Cleaned\n");
-
-// Step 3: Copy Next.js standalone build to app/cli/app.
-// Newer Next.js standalone output writes server.js/package.json plus .next/, src/, and
-// node_modules/ directly under .next/standalone. Older builds may still use a nested app/.
-console.log("3️⃣  Copying Next.js standalone build to app/cli/app...");
-const standaloneRoot = path.join(appDir, ".next", "standalone");
-const standaloneRootResolved = path.join(buildDistDir, "standalone");
-let standaloneRootToUse = fs.existsSync(standaloneRootResolved) ? standaloneRootResolved : standaloneRoot;
-// Next.js 16 nests standalone output under the project name when NEXT_TRACING_ROOT_MODE=workspace
-// e.g. .next-cli-build/standalone/9router/server.js
-const pkgName = path.basename(appDir);
-const nestedRoot = path.join(standaloneRootToUse, pkgName);
-if (fs.existsSync(path.join(nestedRoot, "server.js")) && !fs.existsSync(path.join(standaloneRootToUse, "server.js"))) {
-  console.log(`ℹ️  Detected nested standalone output: ${pkgName}/`);
-  standaloneRootToUse = nestedRoot;
-}
-const standaloneApp = fs.existsSync(path.join(standaloneRootToUse, "server.js"))
-  ? standaloneRootToUse
-  : path.join(standaloneRootToUse, "app");
-if (!fs.existsSync(standaloneApp)) {
-  console.error("❌ Next.js standalone build not found under .next/standalone");
-  console.error("Expected either .next/standalone/server.js or .next/standalone/app/");
-  process.exit(1);
-}
-copyRecursive(standaloneApp, cliAppDir);
-
-// Older nested-app layout stores traced node_modules at standalone root.
-const standaloneNodeModules = path.join(standaloneRootToUse, "node_modules");
-if (standaloneApp !== standaloneRootToUse && fs.existsSync(standaloneNodeModules)) {
-  copyRecursive(standaloneNodeModules, path.join(cliAppDir, "node_modules"));
-}
-console.log("✅ Copied standalone build\n");
-
-// Step 3a: Copy custom server (injects real socket IP, strips spoofable XFF).
-const customServerSrc = path.join(appDir, "custom-server.js");
-if (fs.existsSync(customServerSrc)) {
-  fs.copyFileSync(customServerSrc, path.join(cliAppDir, "custom-server.js"));
-  copyRecursive(path.join(appDir, "server"), path.join(cliAppDir, "server"));
-  console.log("✅ Copied custom-server.js\n");
-} else {
-  console.warn("⚠️  custom-server.js not found — server will run without real-IP injection\n");
-}
-
-// Step 3b: Ensure sql.js (pure JS fallback) bundled in app/cli/app/node_modules.
-// Strip better-sqlite3 (native) — it lives in ~/.9router/runtime to avoid
-// Windows EBUSY during global CLI updates. node:sqlite (Node ≥22.5) is also
-// available as a no-install middle tier.
-console.log("3️⃣ b Configuring SQLite drivers...");
-function ensureModuleInBundle(pkg) {
-  const dest = path.join(cliAppDir, "node_modules", pkg);
-  if (fs.existsSync(dest)) {
-    console.log(`✅ ${pkg} already bundled`);
-    return;
+  // Next.js 16 nests standalone output under the project name when
+  // NEXT_TRACING_ROOT_MODE=workspace, e.g. .next-cli-build/standalone/9router/server.js
+  const pkgName = path.basename(appDir);
+  const nestedRoot = path.join(standaloneRoot, pkgName);
+  if (fs.existsSync(path.join(nestedRoot, "server.js")) && !fs.existsSync(path.join(standaloneRoot, "server.js"))) {
+    console.log(`ℹ️  Detected nested standalone output: ${pkgName}/`);
+    standaloneRoot = nestedRoot;
   }
 
   const standaloneApp = fs.existsSync(path.join(standaloneRoot, "server.js"))
@@ -198,7 +107,6 @@ function ensureModuleInBundle(pkg) {
       "expected either .next/standalone/server.js or .next/standalone/app/",
     );
   }
-
   return { standaloneApp, standaloneRoot };
 }
 
@@ -238,41 +146,6 @@ function assertRequiredApiArtifacts(cliAppDir) {
       missingArtifacts.join("\n"),
     );
   }
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  copyRecursive(src, dest);
-  console.log(`✅ Bundled ${pkg}`);
-}
-ensureModuleInBundle("sql.js");
-// custom-server.js loads the native gateway outside Next's traced module graph.
-copyRuntimePackages(
-  ["ws", "https-proxy-agent", "socks-proxy-agent"],
-  path.join(cliAppDir, "node_modules"),
-  {
-    searchPaths: [appDir, rootDir],
-    storeDirs: [
-      path.join(appDir, "node_modules", ".pnpm"),
-      path.join(rootDir, "node_modules", ".pnpm"),
-    ],
-    onCopy: (pkg, version) => console.log(`✅ Bundled ${pkg}@${version}`),
-  }
-);
-const betterDir = path.join(cliAppDir, "node_modules", "better-sqlite3");
-if (fs.existsSync(betterDir)) {
-  fs.rmSync(betterDir, { recursive: true, force: true });
-  console.log("✅ Stripped better-sqlite3 (lives in ~/.9router/runtime)");
-}
-console.log("");
-
-// Step 4: Copy static files
-console.log("4️⃣  Copying static files...");
-const staticSrc = path.join(appDir, ".next", "static");
-const staticSrcResolved = path.join(buildDistDir, "static");
-const staticDest = path.join(cliAppDir, buildDistDirName, "static");
-if (fs.existsSync(staticSrcResolved) || fs.existsSync(staticSrc)) {
-  copyRecursive(fs.existsSync(staticSrcResolved) ? staticSrcResolved : staticSrc, staticDest);
-  console.log("✅ Copied static files\n");
-} else {
-  console.log("⏭️  No static files found\n");
 }
 
 function buildCliPackage() {
@@ -297,24 +170,29 @@ function buildCliPackage() {
 
   // Step 1: Build app with Next.js (workspace tracing root → traced node_modules in standalone).
   console.log("1️⃣  Building Next.js app...");
-  try {
-    execSync("npm run build", {
-      stdio: "inherit",
-      cwd: appDir,
-      env: {
-        ...process.env,
-        HOME: buildHomeDir,
-        USERPROFILE: buildHomeDir,
-        APPDATA: path.join(buildHomeDir, "AppData", "Roaming"),
-        LOCALAPPDATA: path.join(buildHomeDir, "AppData", "Local"),
-        NEXT_DIST_DIR: buildDistDirName,
-        NEXT_TRACING_ROOT_MODE: "workspace",
-      }
-    });
-    console.log("✅ Next.js build completed\n");
-  } catch (error) {
-    console.error("❌ Next.js build failed");
-    process.exit(1);
+  const existingStandalone = fs.existsSync(path.join(buildDistDir, "standalone"));
+  if (process.env.NINEROUTER_SKIP_APP_BUILD === "1" && existingStandalone) {
+    console.log("⏭️  NINEROUTER_SKIP_APP_BUILD=1 — reusing existing Next.js build\n");
+  } else {
+    try {
+      execSync("npm run build", {
+        stdio: "inherit",
+        cwd: appDir,
+        env: {
+          ...process.env,
+          HOME: buildHomeDir,
+          USERPROFILE: buildHomeDir,
+          APPDATA: path.join(buildHomeDir, "AppData", "Roaming"),
+          LOCALAPPDATA: path.join(buildHomeDir, "AppData", "Local"),
+          NEXT_DIST_DIR: buildDistDirName,
+          NEXT_TRACING_ROOT_MODE: "workspace",
+        }
+      });
+      console.log("✅ Next.js build completed\n");
+    } catch (error) {
+      console.error("❌ Next.js build failed");
+      process.exit(1);
+    }
   }
 
   // Step 2: Clean old app/cli/app if exists
@@ -328,19 +206,15 @@ function buildCliPackage() {
   // Newer Next.js standalone output writes server.js/package.json plus .next/, src/, and
   // node_modules/ directly under .next/standalone. Older builds may still use a nested app/.
   console.log("3️⃣  Copying Next.js standalone build to app/cli/app...");
-  try {
-    copyStandaloneBuild(appDir, buildDistDir, cliAppDir);
-  } catch (error) {
-    console.error("❌ Next.js standalone build not found under .next/standalone");
-    console.error("Expected either .next/standalone/server.js or .next/standalone/app/");
-    process.exit(1);
-  }
+  copyStandaloneBuild(appDir, buildDistDir, cliAppDir);
   console.log("✅ Copied standalone build\n");
 
-  // Step 3a: Copy custom server (injects real socket IP, strips spoofable XFF).
+  // Step 3a: Copy custom server (injects real socket IP, strips spoofable XFF) and the
+  // Codex Native WebSocket gateway it loads (both live outside Next's traced module graph).
   const customServerSrc = path.join(appDir, "custom-server.js");
   if (fs.existsSync(customServerSrc)) {
     fs.copyFileSync(customServerSrc, path.join(cliAppDir, "custom-server.js"));
+    copyRecursive(path.join(appDir, "server"), path.join(cliAppDir, "server"));
     console.log("✅ Copied custom-server.js\n");
   } else {
     console.warn("⚠️  custom-server.js not found — server will run without real-IP injection\n");
@@ -371,10 +245,19 @@ function buildCliPackage() {
     console.log(`✅ Bundled ${pkg}`);
   }
   ensureModuleInBundle("sql.js");
-  // `open` is external (see serverExternalPackages in next.config.mjs), so it must exist in
-  // the bundle's node_modules or every importer throws MODULE_NOT_FOUND at runtime. Output
-  // tracing normally copies it; this is the same belt-and-braces guard used for sql.js.
-  ensureModuleInBundle("open");
+  // custom-server.js loads the native gateway outside Next's traced module graph.
+  copyRuntimePackages(
+    ["ws", "https-proxy-agent", "socks-proxy-agent"],
+    path.join(cliAppDir, "node_modules"),
+    {
+      searchPaths: [appDir, rootDir],
+      storeDirs: [
+        path.join(appDir, "node_modules", ".pnpm"),
+        path.join(rootDir, "node_modules", ".pnpm"),
+      ],
+      onCopy: (pkg, version) => console.log(`✅ Bundled ${pkg}@${version}`),
+    }
+  );
   const betterDir = path.join(cliAppDir, "node_modules", "better-sqlite3");
   if (fs.existsSync(betterDir)) {
     fs.rmSync(betterDir, { recursive: true, force: true });

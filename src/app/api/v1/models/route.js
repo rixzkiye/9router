@@ -517,6 +517,74 @@ export async function OPTIONS() {
 }
 
 /**
+ * Codex CLI (0.146+) expects /v1/models to be `{ models: [ModelInfo] }` — not the
+ * OpenAI `{ object, data }` shape. When the decode fails the CLI falls back to its
+ * cached/bundled catalog of bare slugs, which then route to the wrong provider.
+ * Serve the codex shape only to codex clients (UA sniffing); everyone else keeps
+ * the OpenAI-compatible response.
+ */
+function isCodexCliRequest(request) {
+  const userAgent = request?.headers?.get("user-agent") || "";
+  const originator = request?.headers?.get("originator") || "";
+  return /codex/i.test(userAgent)
+    || String(originator).toLowerCase().startsWith("codex")
+    || !!request?.headers?.get("x-codex-client-version");
+}
+
+// Map a 9router model entry ({ id, name?, capabilities? }) to codex ModelInfo.
+// Field set mirrors what codex's models_cache.json accepts (see
+// codex-rs/protocol/src/openai_models.rs — ModelsResponse).
+function toCodexModelInfo(m) {
+  const caps = m.capabilities || {};
+  const reasoning = caps.reasoning === true;
+  const efforts = reasoning
+    ? ["low", "medium", "high", "xhigh"].map((e) => ({ effort: e, description: e }))
+    : [];
+  // Codex provider models are agentic: spawn_agent (multi-agent v2) is gated on
+  // tool_mode=code_mode_only + multi_agent_version — without these markers the
+  // codex router rejects spawn_agent ("Unknown model ... for spawn_agent").
+  // multi_agent_version=v2 is applied to every model so any of them can be used
+  // as a spawn target (e.g. a deepseek subagent via default_subagent_model).
+  const isCodexModel = String(m.id).startsWith("cx/");
+  return {
+    slug: m.id,
+    display_name: m.name || m.id,
+    description: null,
+    default_reasoning_level: reasoning ? "medium" : null,
+    supported_reasoning_levels: efforts,
+    shell_type: "shell_command",
+    visibility: "list",
+    supported_in_api: true,
+    priority: 100,
+    additional_speed_tiers: [],
+    service_tiers: [],
+    availability_nux: null,
+    upgrade: null,
+    base_instructions: "",
+    model_messages: null,
+    include_skills_usage_instructions: false,
+    default_reasoning_summary: "auto",
+    support_verbosity: false,
+    default_verbosity: null,
+    apply_patch_tool_type: isCodexModel ? "freeform" : null,
+    web_search_tool_type: caps.search ? "text_and_image" : "text",
+    truncation_policy: { mode: "tokens", limit: caps.contextWindow || 128000 },
+    supports_parallel_tool_calls: caps.tools !== false,
+    supports_image_detail_original: caps.vision === true,
+    context_window: caps.contextWindow || null,
+    max_context_window: null,
+    comp_hash: null,
+    effective_context_window_percent: 95,
+    experimental_supported_tools: [],
+    input_modalities: caps.vision ? ["text", "image"] : ["text"],
+    supports_search_tool: caps.search === true,
+    use_responses_lite: false,
+    tool_mode: isCodexModel ? "code_mode_only" : null,
+    multi_agent_version: "v2",
+  };
+}
+
+/**
  * GET /v1/models - OpenAI compatible models list (LLM/chat models only by default).
  * For other capabilities use /v1/models/{kind} (image, tts, stt, embedding, image-to-text, web).
  */
@@ -525,6 +593,11 @@ export async function GET(request) {
     // Detect cross-instance recursive /models fetch (another 9router fetching our /models)
     const skipDynamicFetch = request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1";
     const data = await buildModelsList([LLM_KIND], { skipDynamicFetch });
+    if (isCodexCliRequest(request)) {
+      return Response.json({ models: data.map(toCodexModelInfo) }, {
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
+    }
     return Response.json({ object: "list", data }, {
       headers: { "Access-Control-Allow-Origin": "*" },
     });

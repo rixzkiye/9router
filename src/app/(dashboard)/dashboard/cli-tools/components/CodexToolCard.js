@@ -259,6 +259,7 @@ args = ["codex", "auth-token", "--data-dir", "${dataDir}"]
 refresh_interval_ms = 0
 
 [agents.subagent]
+description = "Default subagent role"
 model = "${effectiveSubagentModel}"
 `;
 

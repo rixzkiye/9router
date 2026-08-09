@@ -70,8 +70,21 @@ function stable(value) {
   );
 }
 
+// Fields ChatGPT personalizes per account (plan availability list, gradual
+// rollout client version, instructions/token-budget overrides). They do not
+// change model behavior, but hashing them fragments otherwise-identical
+// accounts into minority cohorts and drops healthy accounts from the model's
+// eligible pool (e.g. gpt-5.6-sol cohort lost accounts with 80%+ quota left).
+const VOLATILE_MODEL_INFO_FIELDS = new Set([
+  "model_messages",
+  "available_in_plans",
+  "minimal_client_version",
+]);
+
 export function hashCodexModelInfo(model) {
-  return crypto.createHash("sha256").update(JSON.stringify(stable(model))).digest("hex");
+  const cleaned = { ...model };
+  for (const field of VOLATILE_MODEL_INFO_FIELDS) delete cleaned[field];
+  return crypto.createHash("sha256").update(JSON.stringify(stable(cleaned))).digest("hex");
 }
 
 async function fetchConnectionCatalog(connection, clientVersion, cached) {

@@ -130,8 +130,15 @@ function shouldRetryStatus(status, operation) {
   return operation === "responses" && status >= 500;
 }
 
-function upstreamUrl(path) {
-  return `${CODEX_NATIVE_CONFIG.upstreamHttpBaseUrl}/${path}`;
+function upstreamUrl(path, request) {
+  const base = `${CODEX_NATIVE_CONFIG.upstreamHttpBaseUrl}/${path}`;
+  if (!request) return base;
+  // Codex clients may carry provider-level query params (client_version,
+  // conversation_mode, custom model_provider query_params, ...). ChatGPT's
+  // app-server keys model availability and mode off those params, so the
+  // relay must forward them verbatim instead of building a bare URL.
+  const incoming = new URL(request.url);
+  return incoming.search ? `${base}${incoming.search}` : base;
 }
 
 async function parseRoutingCopy(rawBody, contentType) {
@@ -201,7 +208,7 @@ export async function relayCodexNativeHttp(request, {
     const headers = sanitizeCodexNativeRequestHeaders(request.headers, lease.credentials);
     let upstream;
     try {
-      upstream = await proxyAwareFetch(upstreamUrl(path), {
+      upstream = await proxyAwareFetch(upstreamUrl(path, request), {
         method: request.method,
         headers,
         body: rawBody.byteLength ? rawBody.slice(0) : undefined,

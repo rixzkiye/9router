@@ -134,6 +134,32 @@ describe("Codex Native transparent HTTP transport", () => {
     expect(mocks.release).toHaveBeenCalledWith("lease-1");
   });
 
+  it("forwards the client query string to the upstream responses endpoint", async () => {
+    mocks.fetch.mockResolvedValue(new Response("ok", { status: 200 }));
+    const { relayCodexNativeHttp } = await import("@/lib/codexNative/relay.js");
+    const response = await relayCodexNativeHttp(new Request(
+      "http://localhost/v1/codex/responses?client_version=0.147.0&conversation_mode=code_mode_only",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer client-key",
+        },
+        body: '{"model":"gpt-native","input":[]}',
+      }
+    ), {
+      path: "responses",
+      operation: "responses",
+      validateModel: true,
+    });
+
+    expect(response.status).toBe(200);
+    const [url] = mocks.fetch.mock.calls[0];
+    const params = new URL(url).searchParams;
+    expect(params.get("client_version")).toBe("0.147.0");
+    expect(params.get("conversation_mode")).toBe("code_mode_only");
+  });
+
   it("does not replay an ambiguous image-generation transport failure", async () => {
     mocks.fetch.mockRejectedValue(new Error("socket reset"));
     const { relayCodexNativeHttp } = await import("@/lib/codexNative/relay.js");

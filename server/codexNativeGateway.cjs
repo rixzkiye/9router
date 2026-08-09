@@ -31,6 +31,12 @@ function wsDisabled() {
 }
 
 function clientVersion(request) {
+  try {
+    const queryVersion = new URL(request.url, "http://127.0.0.1").searchParams.get("client_version");
+    if (queryVersion) return String(queryVersion);
+  } catch {
+    // Fall through to header/user-agent detection below.
+  }
   const explicit = request.headers["x-codex-client-version"];
   if (explicit) return String(explicit);
   const match = String(request.headers["user-agent"] || "").match(/\bcodex(?:_cli_rs)?\/([^\s]+)/i);
@@ -56,6 +62,21 @@ function noProxyMatches(target, noProxy) {
     if (entry.startsWith(".")) return hostname === entry.slice(1) || hostname.endsWith(entry);
     return hostname === entry || hostname.endsWith(`.${entry}`);
   });
+}
+
+function upstreamWebSocketUrl(requestUrl, upstreamUrl) {
+  try {
+    const incoming = new URL(requestUrl, "http://127.0.0.1");
+    if (!incoming.search) return upstreamUrl;
+    // Preserve provider-level query params (client_version, conversation_mode,
+    // custom model_provider query_params) exactly like the real ChatGPT
+    // endpoint sees them from the Codex client.
+    const base = new URL(upstreamUrl);
+    for (const [key, value] of incoming.searchParams) base.searchParams.append(key, value);
+    return base.toString();
+  } catch {
+    return upstreamUrl;
+  }
 }
 
 function proxyAgent(proxy) {
@@ -171,7 +192,7 @@ function attachCodexNativeGateway(server, options = {}) {
       const protocols = String(request.headers["sec-websocket-protocol"] || "")
         .split(",").map((value) => value.trim()).filter(Boolean);
       const upstream = new WebSocketImpl(
-        upstreamUrl,
+        upstreamWebSocketUrl(request.url, upstreamUrl),
         protocols.length ? protocols : undefined,
         {
           headers: lease.upstreamHeaders,
